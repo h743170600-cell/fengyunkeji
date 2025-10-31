@@ -56,26 +56,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. 检查今日是否已发送过（使用数据库）
-    const today = new Date().toISOString().split('T')[0];
+    // 2. 检查24小时内是否已发送过
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const result = await sql`
       SELECT created_at FROM users 
       WHERE phone = ${shoujihao} 
-      AND created_at::date = ${today}::date
+      AND created_at >= ${twentyFourHoursAgo.toISOString()}
       AND verification_code IS NOT NULL
       LIMIT 1
     `;
     
     if (result.rows.length > 0) {
       return NextResponse.json(
-        { error: '今日已发送过验证码，请使用已收到的验证码登录' },
+        { error: '24小时内已发送过验证码，请使用已收到的验证码登录' },
         { status: 400 }
       );
     }
 
     // 3. 生成6位验证码
     const code = Math.random().toString().slice(2, 8);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10分钟后过期
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24小时后过期
 
     // 4. 存储验证码到数据库
     await sql`
