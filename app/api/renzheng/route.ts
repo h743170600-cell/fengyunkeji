@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     // 3. 验证验证码（使用数据库）
     const codeResult = await sql`
-      SELECT verification_code, code_expires_at 
+      SELECT id, verification_code, code_expires_at 
       FROM users 
       WHERE phone = ${shoujihao}
       LIMIT 1
@@ -65,8 +65,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storedCode = codeResult.rows[0].verification_code;
-    const expiresAt = new Date(codeResult.rows[0].code_expires_at);
+    const user = codeResult.rows[0];
+    const storedCode = user.verification_code;
+    const expiresAt = new Date(user.code_expires_at);
 
     if (storedCode !== yanzhengma) {
       return NextResponse.json(
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 检查验证码是否过期
+    // 检查验证码是否过期（24小时）
     if (expiresAt < new Date()) {
       return NextResponse.json(
         { error: '验证码已过期' },
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     `;
 
     const isNewUser = userResult.rows.length === 0;
-    let user;
+    let currentUser;
 
     if (isNewUser) {
       // 新用户注册
@@ -105,44 +106,44 @@ export async function POST(request: NextRequest) {
         VALUES (${shoujihao}, NOW(), NOW())
         RETURNING *
       `;
-      user = newUser.rows[0];
+      currentUser = newUser.rows[0];
 
       // 初始化用户权益
       await sql`
         INSERT INTO user_benefits (user_id, diagnosis_remaining, expert_remaining, created_at, updated_at)
-        VALUES (${user.id}, 3, 1, NOW(), NOW())
+        VALUES (${currentUser.id}, 3, 1, NOW(), NOW())
       `;
     } else {
       // 老用户更新最后登录时间
-      user = userResult.rows[0];
+      currentUser = userResult.rows[0];
       await sql`
-        UPDATE users SET updated_at = NOW() WHERE id = ${user.id}
+        UPDATE users SET updated_at = NOW() WHERE id = ${currentUser.id}
       `;
     }
 
     // 6. 获取用户权益
     const benefitsResult = await sql`
-      SELECT * FROM user_benefits WHERE user_id = ${user.id} LIMIT 1
+      SELECT * FROM user_benefits WHERE user_id = ${currentUser.id} LIMIT 1
     `;
-    const benefits = benefitsResult.rows[0];
+    const benefits = benefitsResult.rows[0] || {};
 
     // 7. 生成JWT token
-    const token = await generateToken(user.id.toString(), user.phone);
+    const token = await generateToken(currentUser.id.toString(), currentUser.phone);
 
     return NextResponse.json({
       success: true,
       isNewUser: isNewUser,
       user: {
-        user_id: user.id,
-        shoujihao: user.phone,
-        created_at: user.created_at,
+        user_id: currentUser.id,
+        shoujihao: currentUser.phone,
+        created_at: currentUser.created_at,
       },
       benefits: {
-        balance: benefits?.balance || 0,
-        vip_level: benefits?.vip_level || 0,
-        vip_expire_time: benefits?.vip_expire_time,
-        diagnosis_remaining: benefits?.diagnosis_remaining || 0,
-        expert_remaining: benefits?.expert_remaining || 0,
+        balance: benefits.balance || 0,
+        vip_level: benefits.vip_level || 0,
+        vip_expire_time: benefits.vip_expire_time,
+        diagnosis_remaining: benefits.diagnosis_remaining || 0,
+        expert_remaining: benefits.expert_remaining || 0,
       },
       token: token,
       message: isNewUser ? '注册成功' : '登录成功'
